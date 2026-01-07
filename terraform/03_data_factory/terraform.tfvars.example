@@ -1,0 +1,3 @@
+resource_group_name = "rg-adventureworks-<random>"
+location = "eastus2"
+data_factory_name_prefix = "adf-adventureworks"

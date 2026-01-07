@@ -64,6 +64,8 @@ After installing, re-open PowerShell and re-run terraform version.
 ## Project Structure
 - `terraform/01_resource_group`: Azure resource group
 - `terraform/02_storage_account`: ADLS Gen2 storage account + medallion containers
+- `terraform/03_data_factory`: Azure Data Factory v2
+- `terraform/04_adf_linked_services`: ADF linked services (HTTP source + ADLS Gen2 sink)
 - `scripts/`: Helper scripts to deploy/destroy Terraform resources
 - `guides/setup.md`: This guide
 - `notebooks/`: Databricks notebooks (to be added)
@@ -75,6 +77,8 @@ If you want different defaults, edit `DEFAULTS` in `scripts/deploy.py` before ru
 Example variables files:
 - `terraform/01_resource_group/terraform.tfvars.example`
 - `terraform/02_storage_account/terraform.tfvars.example`
+- `terraform/03_data_factory/terraform.tfvars.example`
+- `terraform/04_adf_linked_services/terraform.tfvars.example`
 
 ## Resource Naming
 Resource names are built from a prefix plus a random pet suffix.
@@ -92,6 +96,8 @@ Optional flags:
 ```powershell
 python scripts\deploy.py --rg-only
 python scripts\deploy.py --storage-only
+python scripts\deploy.py --datafactory-only
+python scripts\deploy.py --adf-links-only
 ```
 
 ## Destroy Resources
@@ -106,9 +112,13 @@ Optional flags:
 ```powershell
 python scripts\destroy.py --rg-only
 python scripts\destroy.py --storage-only
+python scripts\destroy.py --datafactory-only
+python scripts\destroy.py --adf-links-only
 ```
 
 ## Notes
 - Storage defaults to Standard performance, LRS, ADLS Gen2 (HNS enabled), and public network access.
+- Data Factory is provisioned as v2 with a random pet suffix by default.
+- Linked services include an HTTP source (anonymous; certificate validation enabled via azapi) and ADLS Gen2 sink (account key). The HTTP linked service uses the default AutoResolveIntegrationRuntime.
 - Terraform state and tfvars files are gitignored by default.
 - The random suffix keeps resource names unique per deployment.
