@@ -1,0 +1,7 @@
+resource_group_name = "rg-adventureworks-<random>"
+location = "eastus2"
+storage_account_name_prefix = "stadvworks"
+account_tier = "Standard"
+account_replication_type = "LRS"
+is_hns_enabled = true
+public_network_access_enabled = true
