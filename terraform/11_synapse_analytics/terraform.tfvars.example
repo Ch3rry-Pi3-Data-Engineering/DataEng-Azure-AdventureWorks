@@ -1,0 +1,9 @@
+resource_group_name = "rg-adventureworks-example"
+location = "eastus2"
+
+workspace_name_prefix = "synapse-adventureworks"
+storage_account_name_prefix = "stsynapse"
+filesystem_name = "synapse"
+
+sql_admin_login = "synapseadmin"
+aad_admin_login = "synapse-sql-admins"

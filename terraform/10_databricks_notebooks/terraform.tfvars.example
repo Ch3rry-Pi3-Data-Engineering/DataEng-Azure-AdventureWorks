@@ -1,0 +1,6 @@
+databricks_host = "https://adb-<workspace-id>.<region>.azuredatabricks.net"
+databricks_token = "<set-me>"
+
+# Optional overrides
+# notebook_name = "Silver Transformations"
+# notebook_source = "../../notebooks/Silver Transformations.ipynb"

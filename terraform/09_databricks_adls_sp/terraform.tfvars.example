@@ -1,0 +1,8 @@
+resource_group_name = "rg-adventureworks-example"
+location = "eastus2"
+storage_account_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-adventureworks-example/providers/Microsoft.Storage/storageAccounts/stexample"
+
+application_display_name_prefix = "sp-adventureworks-adls"
+role_definition_name = "Storage Blob Data Contributor"
+container_names = ["bronze", "silver", "gold", "parameters"]
+secret_end_date_relative = "2160h"

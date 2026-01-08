@@ -24,6 +24,7 @@ flowchart LR
 - Azure CLI (az) installed and authenticated
 - Terraform installed (>= 1.5)
 - Python 3.10+ (for running the helper scripts)
+- Entra ID permissions to create app registrations if you use `09_databricks_adls_sp`
 
 ## Azure CLI
 Check your Azure CLI and login status:
@@ -66,9 +67,16 @@ After installing, re-open PowerShell and re-run terraform version.
 - `terraform/02_storage_account`: ADLS Gen2 storage account + medallion containers
 - `terraform/03_data_factory`: Azure Data Factory v2
 - `terraform/04_adf_linked_services`: ADF linked services (HTTP source + ADLS Gen2 sink)
+- `terraform/05_adf_pipeline_http`: ADF pipeline + datasets (lookup -> foreach -> copy)
+- `terraform/06_databricks`: Azure Databricks workspace (Premium)
+- `terraform/07_databricks_cluster`: Databricks cluster (single-node, Photon)
+- `terraform/08_databricks_access_connector`: Databricks access connector + storage RBAC
+- `terraform/09_databricks_adls_sp`: ADLS OAuth service principal + container RBAC
+- `terraform/10_databricks_notebooks`: Databricks notebooks (user home upload)
+- `terraform/11_synapse_analytics`: Synapse workspace + dedicated ADLS Gen2 storage
 - `scripts/`: Helper scripts to deploy/destroy Terraform resources
 - `guides/setup.md`: This guide
-- `notebooks/`: Databricks notebooks (to be added)
+- `notebooks/`: Databricks notebooks
 
 ## Configure Terraform
 The deploy script writes `terraform/01_resource_group/terraform.tfvars` and `terraform/02_storage_account/terraform.tfvars` automatically.
@@ -79,6 +87,13 @@ Example variables files:
 - `terraform/02_storage_account/terraform.tfvars.example`
 - `terraform/03_data_factory/terraform.tfvars.example`
 - `terraform/04_adf_linked_services/terraform.tfvars.example`
+- `terraform/05_adf_pipeline_http/terraform.tfvars.example`
+- `terraform/06_databricks/terraform.tfvars.example`
+- `terraform/07_databricks_cluster/terraform.tfvars.example`
+- `terraform/08_databricks_access_connector/terraform.tfvars.example`
+- `terraform/09_databricks_adls_sp/terraform.tfvars.example`
+- `terraform/10_databricks_notebooks/terraform.tfvars.example`
+- `terraform/11_synapse_analytics/terraform.tfvars.example`
 
 ## Resource Naming
 Resource names are built from a prefix plus a random pet suffix.
@@ -98,7 +113,28 @@ python scripts\deploy.py --rg-only
 python scripts\deploy.py --storage-only
 python scripts\deploy.py --datafactory-only
 python scripts\deploy.py --adf-links-only
+python scripts\deploy.py --adf-pipeline-only
+python scripts\deploy.py --databricks-only
+python scripts\deploy.py --databricks-access-only
+python scripts\deploy.py --databricks-adls-sp-only
+python scripts\deploy.py --databricks-cluster-only
+python scripts\deploy.py --databricks-notebooks-only
+python scripts\deploy.py --synapse-only
 ```
+
+## Databricks Notebook Access
+The Databricks cluster exports `STORAGE_ACCOUNT_NAME`, so notebooks can build `abfss://` paths without hardcoding.
+
+```python
+import os
+
+storage_account = os.getenv("STORAGE_ACCOUNT_NAME")
+bronze_root = f"abfss://bronze@{storage_account}.dfs.core.windows.net/"
+display(dbutils.fs.ls(bronze_root))
+```
+
+If you recreate the storage account, redeploy the cluster so the env var is refreshed.
+Notebook uploads are managed by `terraform/10_databricks_notebooks` and target `/Users/<token-user-email>`.
 
 ## Destroy Resources
 To tear down resources:
@@ -114,11 +150,26 @@ python scripts\destroy.py --rg-only
 python scripts\destroy.py --storage-only
 python scripts\destroy.py --datafactory-only
 python scripts\destroy.py --adf-links-only
+python scripts\destroy.py --adf-pipeline-only
+python scripts\destroy.py --databricks-only
+python scripts\destroy.py --databricks-access-only
+python scripts\destroy.py --databricks-adls-sp-only
+python scripts\destroy.py --databricks-cluster-only
+python scripts\destroy.py --databricks-notebooks-only
+python scripts\destroy.py --synapse-only
 ```
 
 ## Notes
+- If you run Terraform directly in a module (not via the scripts), run `terraform init` first to create/update the provider lock file.
 - Storage defaults to Standard performance, LRS, ADLS Gen2 (HNS enabled), and public network access.
 - Data Factory is provisioned as v2 with a random pet suffix by default.
 - Linked services include an HTTP source (anonymous; certificate validation enabled via azapi) and ADLS Gen2 sink (account key). The HTTP linked service uses the default AutoResolveIntegrationRuntime.
+- The pipeline reads `parameters/parameters.json` from the `parameters` container and copies each HTTP file into the `bronze` container.
+- Databricks is provisioned on the Premium SKU with a managed resource group name built from the prefix and random suffix.
+- The access connector grants managed identity RBAC over the containers (default: bronze/silver/gold/parameters).
+- The ADLS OAuth module creates a service principal and grants container RBAC for cluster access.
+- The Databricks cluster module expects a PAT in `DATABRICKS_TOKEN` (or set `databricks_token` in the tfvars file). You can add `DATABRICKS_TOKEN=...` to a gitignored `.env` file at the repo root.
+- For ADLS OAuth, you can either let `09_databricks_adls_sp` generate credentials or set `ADLS_OAUTH_CLIENT_ID`, `ADLS_OAUTH_CLIENT_SECRET`, `ADLS_OAUTH_TENANT_ID`, and `ADLS_STORAGE_ACCOUNT_NAME` in `.env`.
+- For Synapse, set `SYNAPSE_AAD_ADMIN_LOGIN` and `SYNAPSE_AAD_ADMIN_OBJECT_ID` (group recommended) in `.env`. The deploy script generates a SQL admin password if missing; you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
 - Terraform state and tfvars files are gitignored by default.
 - The random suffix keeps resource names unique per deployment.

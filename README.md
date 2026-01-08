@@ -35,6 +35,22 @@ az account show
 ```powershell
 python scripts\deploy.py
 ```
+If you prefer, place `DATABRICKS_TOKEN` in a gitignored `.env` file at the repo root; the scripts will load it automatically.
+For ADLS OAuth in the Databricks cluster, you can also set `ADLS_OAUTH_CLIENT_ID`, `ADLS_OAUTH_CLIENT_SECRET`, `ADLS_OAUTH_TENANT_ID`, and `ADLS_STORAGE_ACCOUNT_NAME` in `.env`, or let the `09_databricks_adls_sp` module generate them.
+
+## Databricks Notebook Access
+The Databricks cluster exports `STORAGE_ACCOUNT_NAME`, so notebooks can build `abfss://` paths without hardcoding.
+
+```python
+import os
+
+storage_account = os.getenv("STORAGE_ACCOUNT_NAME")
+bronze_root = f"abfss://bronze@{storage_account}.dfs.core.windows.net/"
+display(dbutils.fs.ls(bronze_root))
+```
+
+If you recreate the storage account, redeploy the cluster so the env var is refreshed.
+Notebook uploads are managed by `terraform/10_databricks_notebooks` and target `/Users/<token-user-email>`.
 
 ## Resource Naming
 Resources use a prefix plus a random pet suffix for uniqueness, for example:
@@ -45,16 +61,30 @@ Set `resource_group_name` in `terraform/01_resource_group/terraform.tfvars` (or 
 - `terraform/01_resource_group`: Azure resource group
 - `terraform/02_storage_account`: ADLS Gen2 storage account + medallion containers
 - `terraform/03_data_factory`: Azure Data Factory v2
-- `terraform/04_adf_linked_services`: ADF linked services (HTTP source via azapi + ADLS Gen2 sink; AutoResolve IR)
+- `terraform/04_adf_linked_services`: ADF linked services (HTTP source via azapi + ADLS Gen2 sink)
+- `terraform/05_adf_pipeline_http`: ADF pipeline + datasets (lookup -> foreach -> copy)
+- `terraform/06_databricks`: Azure Databricks workspace (Premium)
+- `terraform/07_databricks_cluster`: Databricks cluster (single-node, Photon)
+- `terraform/08_databricks_access_connector`: Databricks access connector + storage RBAC
+- `terraform/09_databricks_adls_sp`: ADLS OAuth service principal + container RBAC
+- `terraform/10_databricks_notebooks`: Databricks notebooks (user home upload)
+- `terraform/11_synapse_analytics`: Synapse workspace + dedicated ADLS Gen2 storage
 - `scripts/`: Deploy/destroy helpers (auto-writes terraform.tfvars)
 - `guides/setup.md`: Detailed setup guide
-- `notebooks/`: Databricks notebooks (to be added)
+- `notebooks/`: Databricks notebooks
 
 Example variables files:
 - `terraform/01_resource_group/terraform.tfvars.example`
 - `terraform/02_storage_account/terraform.tfvars.example`
 - `terraform/03_data_factory/terraform.tfvars.example`
 - `terraform/04_adf_linked_services/terraform.tfvars.example`
+- `terraform/05_adf_pipeline_http/terraform.tfvars.example`
+- `terraform/06_databricks/terraform.tfvars.example`
+- `terraform/07_databricks_cluster/terraform.tfvars.example`
+- `terraform/08_databricks_access_connector/terraform.tfvars.example`
+- `terraform/09_databricks_adls_sp/terraform.tfvars.example`
+- `terraform/10_databricks_notebooks/terraform.tfvars.example`
+- `terraform/11_synapse_analytics/terraform.tfvars.example`
 
 ## Deploy/Destroy Options
 Deploy:
@@ -64,6 +94,13 @@ python scripts\deploy.py --rg-only
 python scripts\deploy.py --storage-only
 python scripts\deploy.py --datafactory-only
 python scripts\deploy.py --adf-links-only
+python scripts\deploy.py --adf-pipeline-only
+python scripts\deploy.py --databricks-only
+python scripts\deploy.py --databricks-access-only
+python scripts\deploy.py --databricks-adls-sp-only
+python scripts\deploy.py --databricks-cluster-only
+python scripts\deploy.py --databricks-notebooks-only
+python scripts\deploy.py --synapse-only
 ```
 
 Destroy:
@@ -73,7 +110,17 @@ python scripts\destroy.py --rg-only
 python scripts\destroy.py --storage-only
 python scripts\destroy.py --datafactory-only
 python scripts\destroy.py --adf-links-only
+python scripts\destroy.py --adf-pipeline-only
+python scripts\destroy.py --databricks-only
+python scripts\destroy.py --databricks-access-only
+python scripts\destroy.py --databricks-adls-sp-only
+python scripts\destroy.py --databricks-cluster-only
+python scripts\destroy.py --databricks-notebooks-only
+python scripts\destroy.py --synapse-only
 ```
+
+ADLS OAuth: when `09_databricks_adls_sp` is deployed (or `ADLS_OAUTH_*` env vars are set), the cluster is configured for direct `abfss://` access using OAuth and exposes `STORAGE_ACCOUNT_NAME`. Notebook uploads go to the current user's workspace path from the Databricks token.
+Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` and `SYNAPSE_AAD_ADMIN_OBJECT_ID` (group recommended). The deploy script generates a SQL admin password if missing; you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
 
 ## Guide
 See `guides/setup.md` for detailed instructions.

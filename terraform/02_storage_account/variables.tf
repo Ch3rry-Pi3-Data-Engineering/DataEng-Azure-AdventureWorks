@@ -48,7 +48,7 @@ variable "public_network_access_enabled" {
 variable "container_names" {
   type        = list(string)
   description = "Containers created for the medallion architecture"
-  default     = ["bronze", "silver", "gold"]
+  default     = ["bronze", "silver", "gold", "parameters"]
 }
 
 variable "tags" {

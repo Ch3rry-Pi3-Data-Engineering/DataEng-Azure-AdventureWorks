@@ -1,0 +1,18 @@
+databricks_host = "https://adb-<workspace-id>.<region>.azuredatabricks.net"
+databricks_token = "<set-me>"
+
+cluster_name_prefix = "dbc-adventureworks"
+spark_version = "16.4.x-scala2.13"
+node_type_id = "Standard_D4pds_v6"
+autotermination_minutes = 30
+runtime_engine = "PHOTON"
+data_security_mode = "DATA_SECURITY_MODE_AUTO"
+cluster_kind = "CLASSIC_PREVIEW"
+is_single_node = true
+num_workers = 2
+
+# Optional: ADLS OAuth settings for abfss access (SP auth)
+adls_storage_account_name = "stexample"
+adls_oauth_client_id = "00000000-0000-0000-0000-000000000000"
+adls_oauth_client_secret = "replace-me"
+adls_oauth_tenant_id = "00000000-0000-0000-0000-000000000000"
