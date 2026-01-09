@@ -35,6 +35,7 @@ resource "random_pet" "storage" {
 
 locals {
   workspace_name       = var.workspace_name != null ? var.workspace_name : "${var.workspace_name_prefix}-${random_pet.workspace.id}"
+  managed_rg_name      = var.managed_resource_group_name != null ? var.managed_resource_group_name : "${var.managed_resource_group_name_prefix}-${random_pet.workspace.id}"
   storage_account_name = var.storage_account_name != null ? var.storage_account_name : substr("${var.storage_account_name_prefix}${random_pet.storage.id}", 0, 24)
 }
 
@@ -65,6 +66,7 @@ resource "azurerm_synapse_workspace" "main" {
   name                                 = local.workspace_name
   resource_group_name                  = data.azurerm_resource_group.main.name
   location                             = coalesce(var.location, data.azurerm_resource_group.main.location)
+  managed_resource_group_name          = local.managed_rg_name
   storage_data_lake_gen2_filesystem_id = azurerm_storage_data_lake_gen2_filesystem.synapse.id
   sql_administrator_login              = var.sql_admin_login
   sql_administrator_login_password     = var.sql_admin_password

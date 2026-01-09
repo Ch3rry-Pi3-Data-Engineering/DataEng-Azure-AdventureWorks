@@ -21,6 +21,18 @@ variable "workspace_name_prefix" {
   default     = "synapse-adventureworks"
 }
 
+variable "managed_resource_group_name" {
+  type        = string
+  description = "Managed resource group name for Synapse (if null, uses managed_resource_group_name_prefix + random suffix)"
+  default     = null
+}
+
+variable "managed_resource_group_name_prefix" {
+  type        = string
+  description = "Prefix used to build the managed resource group name when managed_resource_group_name is null"
+  default     = "rg-synapse-adventureworks"
+}
+
 variable "storage_account_name" {
   type        = string
   description = "Storage account name for Synapse (if null, uses storage_account_name_prefix + random suffix)"
