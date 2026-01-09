@@ -286,6 +286,10 @@ def get_rg_name(rg_dir):
 
 
 def write_storage_tfvars(storage_dir, rg_name):
+    storage_blob_contributor_object_id = os.environ.get("STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID")
+    if not storage_blob_contributor_object_id:
+        _, user_object_id = resolve_signed_in_user()
+        storage_blob_contributor_object_id = user_object_id
     items = [
         ("resource_group_name", rg_name),
         ("location", DEFAULTS["location"]),
@@ -295,6 +299,8 @@ def write_storage_tfvars(storage_dir, rg_name):
         ("public_network_access_enabled", DEFAULTS["public_network_access_enabled"]),
         ("is_hns_enabled", DEFAULTS["is_hns_enabled"]),
     ]
+    if storage_blob_contributor_object_id:
+        items.append(("storage_blob_contributor_object_id", storage_blob_contributor_object_id))
     write_tfvars(storage_dir / "terraform.tfvars", items)
 
 

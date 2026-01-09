@@ -15,6 +15,12 @@ variable "storage_account_name" {
   default     = null
 }
 
+variable "storage_blob_contributor_object_id" {
+  type        = string
+  description = "Optional object ID (user/group/SP) to grant Storage Blob Data Contributor on the storage account"
+  default     = null
+}
+
 variable "storage_account_name_prefix" {
   type        = string
   description = "Prefix used to build the storage account name when storage_account_name is null"

@@ -51,6 +51,14 @@ resource "azurerm_storage_account" "main" {
   tags = var.tags
 }
 
+resource "azurerm_role_assignment" "storage_blob_contributor" {
+  count = var.storage_blob_contributor_object_id != null ? 1 : 0
+
+  scope                = azurerm_storage_account.main.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.storage_blob_contributor_object_id
+}
+
 resource "azurerm_storage_container" "medallion" {
   for_each              = local.container_names
   name                  = each.key

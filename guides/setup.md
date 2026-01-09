@@ -170,6 +170,7 @@ python scripts\destroy.py --synapse-only
 - The ADLS OAuth module creates a service principal and grants container RBAC for cluster access.
 - The Databricks cluster module expects a PAT in `DATABRICKS_TOKEN` (or set `databricks_token` in the tfvars file). You can add `DATABRICKS_TOKEN=...` to a gitignored `.env` file at the repo root.
 - For ADLS OAuth, you can either let `09_databricks_adls_sp` generate credentials or set `ADLS_OAUTH_CLIENT_ID`, `ADLS_OAUTH_CLIENT_SECRET`, `ADLS_OAUTH_TENANT_ID`, and `ADLS_STORAGE_ACCOUNT_NAME` in `.env`.
+- Storage RBAC: the deploy script grants Storage Blob Data Contributor on the primary storage account to the signed-in user (override with `STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID`).
 - For Synapse, set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended) in `.env`. If nothing is provided, the deploy script attempts to use the signed-in Azure CLI user; if directory reads are restricted, set `SYNAPSE_AAD_ADMIN_OBJECT_ID` or add `aad_admin_object_id` to `terraform/11_synapse_analytics/terraform.tfvars`. The deploy script generates a SQL admin password if missing (per-user); you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
 - Terraform state and tfvars files are gitignored by default.
 - The random suffix keeps resource names unique per deployment.

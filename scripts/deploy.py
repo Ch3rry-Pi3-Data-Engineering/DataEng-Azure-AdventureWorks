@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 import secrets
 import string
 import subprocess
@@ -53,6 +54,7 @@ DEFAULTS = {
     "synapse_filesystem_name": "synapse",
     "synapse_sql_admin_login": "synapseadmin",
     "synapse_storage_role_definition_name": "Storage Blob Data Contributor",
+    "synapse_serverless_db_name": "adventureworks_serverless",
 }
 
 def run(cmd):
@@ -69,11 +71,14 @@ def run_capture_optional(cmd):
     except subprocess.CalledProcessError:
         return None
 
+def get_az_exe():
+    return "az.cmd" if os.name == "nt" else "az"
+
 def resolve_aad_group_object_id(group_name):
     if not group_name:
         return None
 
-    az_exe = "az.cmd" if os.name == "nt" else "az"
+    az_exe = get_az_exe()
 
     return run_capture_optional([
         az_exe,
@@ -85,7 +90,7 @@ def resolve_aad_group_object_id(group_name):
 
 
 def resolve_signed_in_user():
-    az_exe = "az.cmd" if os.name == "nt" else "az"
+    az_exe = get_az_exe()
     user_login = run_capture_optional([
         az_exe,
         "account", "show",
@@ -99,6 +104,44 @@ def resolve_signed_in_user():
         "-o", "tsv",
     ])
     return user_login or None, user_object_id or None
+
+def run_serverless_sql_scripts(synapse_dir, scripts_dir, database_name):
+    sqlcmd_exe = shutil.which("sqlcmd")
+    if not sqlcmd_exe:
+        raise RuntimeError("sqlcmd not found on PATH. Install Microsoft sqlcmd (mssql-tools18) first.")
+    if not scripts_dir.exists():
+        print(f"SQL scripts folder not found: {scripts_dir}")
+        return
+
+    run(["terraform", f"-chdir={synapse_dir}", "init"])
+    workspace_name = get_output(synapse_dir, "workspace_name")
+    server = f"{workspace_name}-ondemand.sql.azuresynapse.net"
+
+    scripts = sorted(path for path in scripts_dir.glob("*.sql") if path.is_file())
+    if not scripts:
+        print(f"No SQL scripts found in {scripts_dir}")
+        return
+
+    for script_path in scripts:
+        target_db = "master" if script_path.name.startswith("00_") else database_name
+        print(
+            f"\n$ sqlcmd -S {server} -d {target_db} "
+            f"--authentication-method ActiveDirectoryAzCli -i {script_path}"
+        )
+        subprocess.check_call(
+            [
+                sqlcmd_exe,
+                "-S",
+                server,
+                "-d",
+                target_db,
+                "--authentication-method",
+                "ActiveDirectoryAzCli",
+                "-i",
+                str(script_path),
+                "-b",
+            ],
+        )
 
 
 def hcl_value(value):
@@ -181,6 +224,10 @@ def write_rg_tfvars(rg_dir):
     write_tfvars(rg_dir / "terraform.tfvars", items)
 
 def write_storage_tfvars(storage_dir, rg_name):
+    storage_blob_contributor_object_id = os.environ.get("STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID")
+    if not storage_blob_contributor_object_id:
+        _, user_object_id = resolve_signed_in_user()
+        storage_blob_contributor_object_id = user_object_id
     items = [
         ("resource_group_name", rg_name),
         ("location", DEFAULTS["location"]),
@@ -190,6 +237,8 @@ def write_storage_tfvars(storage_dir, rg_name):
         ("public_network_access_enabled", DEFAULTS["public_network_access_enabled"]),
         ("is_hns_enabled", DEFAULTS["is_hns_enabled"]),
     ]
+    if storage_blob_contributor_object_id:
+        items.append(("storage_blob_contributor_object_id", storage_blob_contributor_object_id))
     write_tfvars(storage_dir / "terraform.tfvars", items)
 
 def write_data_factory_tfvars(data_factory_dir, rg_name):
@@ -413,6 +462,8 @@ if __name__ == "__main__":
         group.add_argument("--databricks-cluster-only", action="store_true", help="Deploy only the Databricks cluster stack")
         group.add_argument("--databricks-notebooks-only", action="store_true", help="Deploy only the Databricks notebooks stack")
         group.add_argument("--synapse-only", action="store_true", help="Deploy only the Synapse Analytics stack")
+        group.add_argument("--sql-only", action="store_true", help="Run Synapse serverless SQL bootstrap only")
+        parser.add_argument("--sql", action="store_true", help="Run Synapse serverless SQL bootstrap after deploy")
         args = parser.parse_args()
 
         repo_root = Path(__file__).resolve().parent.parent
@@ -428,6 +479,28 @@ if __name__ == "__main__":
         databricks_cluster_dir = repo_root / "terraform" / "07_databricks_cluster"
         databricks_notebooks_dir = repo_root / "terraform" / "10_databricks_notebooks"
         synapse_dir = repo_root / "terraform" / "11_synapse_analytics"
+        sql_scripts_dir = repo_root / "sql" / "serverless"
+        serverless_db_name = os.environ.get("SYNAPSE_SERVERLESS_DB_NAME") or DEFAULTS["synapse_serverless_db_name"]
+
+        if args.sql and any(
+            [
+                args.rg_only,
+                args.storage_only,
+                args.datafactory_only,
+                args.adf_links_only,
+                args.adf_pipeline_only,
+                args.databricks_only,
+                args.databricks_access_only,
+                args.databricks_adls_sp_only,
+                args.databricks_cluster_only,
+                args.databricks_notebooks_only,
+            ]
+        ):
+            raise RuntimeError("--sql can only be used with full deploy or --synapse-only.")
+
+        if args.sql_only:
+            run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
+            sys.exit(0)
 
         if args.rg_only:
             write_rg_tfvars(rg_dir)
@@ -450,6 +523,8 @@ if __name__ == "__main__":
                 raise RuntimeError("Storage account ID not found for Synapse access. Deploy the storage stack first.")
             write_synapse_tfvars(synapse_dir, rg_name, storage_account_id)
             deploy_stack(synapse_dir)
+            if args.sql:
+                run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
             sys.exit(0)
 
         if args.datafactory_only:
@@ -593,6 +668,7 @@ if __name__ == "__main__":
         deploy_stack(databricks_cluster_dir)
         write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_host)
         deploy_stack(databricks_notebooks_dir)
+        run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
     except subprocess.CalledProcessError as exc:
         print(f"Command failed: {exc}")
         sys.exit(exc.returncode)

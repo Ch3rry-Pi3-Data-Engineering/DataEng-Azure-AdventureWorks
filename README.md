@@ -101,6 +101,8 @@ python scripts\deploy.py --databricks-adls-sp-only
 python scripts\deploy.py --databricks-cluster-only
 python scripts\deploy.py --databricks-notebooks-only
 python scripts\deploy.py --synapse-only
+python scripts\deploy.py --sql
+python scripts\deploy.py --sql-only
 ```
 
 Destroy:
@@ -120,7 +122,9 @@ python scripts\destroy.py --synapse-only
 ```
 
 ADLS OAuth: when `09_databricks_adls_sp` is deployed (or `ADLS_OAUTH_*` env vars are set), the cluster is configured for direct `abfss://` access using OAuth and exposes `STORAGE_ACCOUNT_NAME`. Notebook uploads go to the current user's workspace path from the Databricks token.
+Storage RBAC: the deploy script grants Storage Blob Data Contributor on the primary storage account to the signed-in user (override with `STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID`).
 Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended). If nothing is provided, the deploy script attempts to use the signed-in Azure CLI user; if directory reads are restricted, set `SYNAPSE_AAD_ADMIN_OBJECT_ID` or `aad_admin_object_id` in `terraform/11_synapse_analytics/terraform.tfvars`. The deploy script generates a SQL admin password if missing (per-user) and you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
+Serverless SQL bootstrap: a single script in `sql/serverless/00_create_db.sql` runs via `sqlcmd` during a full deploy, or when you pass `--synapse-only --sql` or `--sql-only`. It uses `--authentication-method ActiveDirectoryAzCli`, so ensure `az login` is active.
 
 ## Guide
 See `guides/setup.md` for detailed instructions.
