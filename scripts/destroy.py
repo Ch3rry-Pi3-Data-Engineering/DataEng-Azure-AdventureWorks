@@ -55,13 +55,16 @@ DEFAULTS = {
     "synapse_storage_role_definition_name": "Storage Blob Data Contributor",
 }
 
+
 def run(cmd):
     print("\n$ " + " ".join(cmd))
     subprocess.check_call(cmd)
 
+
 def run_capture(cmd):
     print("\n$ " + " ".join(cmd))
     return subprocess.check_output(cmd, text=True).strip()
+
 
 def run_capture_optional(cmd):
     try:
@@ -69,18 +72,26 @@ def run_capture_optional(cmd):
     except subprocess.CalledProcessError:
         return None
 
+
 def resolve_aad_group_object_id(group_name):
     """
     Resolve an Entra ID group object ID using Azure CLI.
 
     Notes:
     - This uses `az ad group show`, which may require directory read permissions in your tenant.
+    - On Windows, `uv run` often cannot resolve `az` from PATH; prefer `az.cmd`.
     - If directory reads are restricted, you'll need to supply the object ID via env var or tfvars.
     """
     if not group_name:
         return None
+
+    az_exe = "az.cmd" if os.name == "nt" else "az"
+
     # `--group` accepts display name or object id; we pass the name and request `id`.
-    return run_capture_optional(["az", "ad", "group", "show", "--group", group_name, "--query", "id", "-o", "tsv"])
+    return run_capture_optional(
+        [az_exe, "ad", "group", "show", "--group", group_name, "--query", "id", "-o", "tsv"]
+    )
+
 
 def hcl_value(value):
     if value is None:
@@ -95,9 +106,11 @@ def hcl_value(value):
     escaped = str(value).replace("\"", "\\\"")
     return f"\"{escaped}\""
 
+
 def write_tfvars(path, items):
     lines = [f"{key} = {hcl_value(value)}" for key, value in items]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
 
 def load_env_file(path):
     if not path.exists():
@@ -111,6 +124,7 @@ def load_env_file(path):
         value = value.strip()
         if key and key not in os.environ:
             os.environ[key] = value
+
 
 def read_tfvars_value(path, key):
     if not path.exists():
@@ -132,17 +146,21 @@ def read_tfvars_value(path, key):
         return value
     return None
 
+
 def generate_password(length=20):
     if length < 12:
         length = 12
     alphabet = string.ascii_letters + string.digits + "!@#$%_-+="
     while True:
         password = "".join(secrets.choice(alphabet) for _ in range(length))
-        if (any(c.islower() for c in password)
-                and any(c.isupper() for c in password)
-                and any(c.isdigit() for c in password)
-                and any(c in "!@#$%_-+=" for c in password)):
+        if (
+            any(c.islower() for c in password)
+            and any(c.isupper() for c in password)
+            and any(c.isdigit() for c in password)
+            and any(c in "!@#$%_-+=" for c in password)
+        ):
             return password
+
 
 def read_tfstate(path):
     if not path.exists():
@@ -152,17 +170,20 @@ def read_tfstate(path):
     except json.JSONDecodeError:
         return None
 
+
 def read_tfstate_with_backup(tf_dir):
     state = read_tfstate(tf_dir / "terraform.tfstate")
     if state:
         return state
     return read_tfstate(tf_dir / "terraform.tfstate.backup")
 
+
 def state_has_resources(tf_dir):
     state = read_tfstate_with_backup(tf_dir)
     if not state:
         return False
     return bool(state.get("resources"))
+
 
 def get_tfstate_output(tf_dir, output_name):
     state = read_tfstate_with_backup(tf_dir)
@@ -172,6 +193,7 @@ def get_tfstate_output(tf_dir, output_name):
     if isinstance(output, dict):
         return output.get("value")
     return None
+
 
 def get_rg_name_from_state(rg_dir):
     state = read_tfstate_with_backup(rg_dir)
@@ -186,6 +208,7 @@ def get_rg_name_from_state(rg_dir):
                 return name
     return None
 
+
 def get_storage_account_id_from_state(storage_dir):
     state = read_tfstate_with_backup(storage_dir)
     if not state:
@@ -199,12 +222,14 @@ def get_storage_account_id_from_state(storage_dir):
                 return storage_id
     return None
 
+
 def get_storage_account_id(storage_dir):
     return (
         get_output_optional(storage_dir, "storage_account_id")
         or get_tfstate_output(storage_dir, "storage_account_id")
         or get_storage_account_id_from_state(storage_dir)
     )
+
 
 def get_databricks_host_from_cluster_state(cluster_dir):
     state = read_tfstate_with_backup(cluster_dir)
@@ -223,11 +248,15 @@ def get_databricks_host_from_cluster_state(cluster_dir):
             return url.split("#", 1)[0].rstrip("/")
     return None
 
+
 def get_output_optional(tf_dir, output_name):
     try:
-        return run_capture(["terraform", f"-chdir={tf_dir}", "-no-color", "output", "-raw", output_name])
+        return run_capture(
+            ["terraform", f"-chdir={tf_dir}", "-no-color", "output", "-raw", output_name]
+        )
     except subprocess.CalledProcessError:
         return None
+
 
 def get_rg_name(rg_dir):
     return (
@@ -236,6 +265,7 @@ def get_rg_name(rg_dir):
         or get_rg_name_from_state(rg_dir)
         or read_tfvars_value(rg_dir / "terraform.tfvars", "resource_group_name")
     )
+
 
 def write_storage_tfvars(storage_dir, rg_name):
     items = [
@@ -249,6 +279,7 @@ def write_storage_tfvars(storage_dir, rg_name):
     ]
     write_tfvars(storage_dir / "terraform.tfvars", items)
 
+
 def write_data_factory_tfvars(data_factory_dir, rg_name):
     items = [
         ("resource_group_name", rg_name),
@@ -256,6 +287,7 @@ def write_data_factory_tfvars(data_factory_dir, rg_name):
         ("data_factory_name_prefix", DEFAULTS["data_factory_name_prefix"]),
     ]
     write_tfvars(data_factory_dir / "terraform.tfvars", items)
+
 
 def write_adf_linked_services_tfvars(linked_services_dir, data_factory_dir, storage_dir):
     data_factory_id = (
@@ -286,6 +318,7 @@ def write_adf_linked_services_tfvars(linked_services_dir, data_factory_dir, stor
         ("description", DEFAULTS["linked_services_description"]),
     ]
     write_tfvars(linked_services_dir / "terraform.tfvars", items)
+
 
 def write_adf_pipeline_tfvars(pipeline_dir, data_factory_dir, linked_services_dir):
     data_factory_id = (
@@ -319,6 +352,7 @@ def write_adf_pipeline_tfvars(pipeline_dir, data_factory_dir, linked_services_di
     ]
     write_tfvars(pipeline_dir / "terraform.tfvars", items)
 
+
 def write_databricks_tfvars(databricks_dir, rg_name):
     items = [
         ("resource_group_name", rg_name),
@@ -329,6 +363,7 @@ def write_databricks_tfvars(databricks_dir, rg_name):
     ]
     write_tfvars(databricks_dir / "terraform.tfvars", items)
 
+
 def write_databricks_access_tfvars(access_dir, rg_name, storage_account_id):
     items = [
         ("resource_group_name", rg_name),
@@ -338,6 +373,26 @@ def write_databricks_access_tfvars(access_dir, rg_name, storage_account_id):
         ("role_definition_name", DEFAULTS["databricks_access_role_definition_name"]),
     ]
     write_tfvars(access_dir / "terraform.tfvars", items)
+
+
+def write_adls_oauth_tfvars(adls_oauth_dir, rg_name, storage_account_id):
+    """
+    Write terraform.tfvars for the ADLS OAuth (service principal) stack.
+
+    This fixes the NameError you hit during destroy: write_adls_oauth_tfvars was being called
+    but not defined.
+    """
+    items = [
+        ("resource_group_name", rg_name),
+        ("location", DEFAULTS["location"]),
+        ("storage_account_id", storage_account_id),
+        ("application_name_prefix", DEFAULTS["adls_oauth_application_name_prefix"]),
+        ("container_names", DEFAULTS["adls_oauth_container_names"]),
+        ("role_definition_name", DEFAULTS["adls_oauth_role_definition_name"]),
+        ("secret_end_date_relative", DEFAULTS["adls_oauth_secret_end_date_relative"]),
+    ]
+    write_tfvars(adls_oauth_dir / "terraform.tfvars", items)
+
 
 def normalize_databricks_host(value):
     if not value:
@@ -357,6 +412,7 @@ def normalize_databricks_host(value):
         return None
     return host
 
+
 def write_databricks_cluster_tfvars(databricks_cluster_dir, databricks_dir):
     databricks_host = (
         get_output_optional(databricks_dir, "databricks_workspace_url")
@@ -364,7 +420,9 @@ def write_databricks_cluster_tfvars(databricks_cluster_dir, databricks_dir):
     )
     if not databricks_host:
         databricks_host = read_tfvars_value(databricks_cluster_dir / "terraform.tfvars", "databricks_host")
-    databricks_host = normalize_databricks_host(databricks_host) or get_databricks_host_from_cluster_state(databricks_cluster_dir)
+    databricks_host = normalize_databricks_host(databricks_host) or get_databricks_host_from_cluster_state(
+        databricks_cluster_dir
+    )
     if not databricks_host:
         raise RuntimeError("Databricks workspace URL not found for cluster destroy.")
     databricks_token = os.environ.get("DATABRICKS_TOKEN")
@@ -384,6 +442,7 @@ def write_databricks_cluster_tfvars(databricks_cluster_dir, databricks_dir):
         items.append(("databricks_token", databricks_token))
     write_tfvars(databricks_cluster_dir / "terraform.tfvars", items)
 
+
 def write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_dir, databricks_cluster_dir):
     databricks_host = (
         get_output_optional(databricks_dir, "databricks_workspace_url")
@@ -391,7 +450,9 @@ def write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_dir, 
     )
     if not databricks_host:
         databricks_host = read_tfvars_value(databricks_cluster_dir / "terraform.tfvars", "databricks_host")
-    databricks_host = normalize_databricks_host(databricks_host) or get_databricks_host_from_cluster_state(databricks_cluster_dir)
+    databricks_host = normalize_databricks_host(databricks_host) or get_databricks_host_from_cluster_state(
+        databricks_cluster_dir
+    )
     if not databricks_host:
         raise RuntimeError("Databricks workspace URL not found for notebooks destroy.")
     databricks_token = os.environ.get("DATABRICKS_TOKEN")
@@ -402,17 +463,29 @@ def write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_dir, 
         items.append(("databricks_token", databricks_token))
     write_tfvars(databricks_notebooks_dir / "terraform.tfvars", items)
 
+
 def write_synapse_tfvars(synapse_dir, rg_name):
     tfvars_path = synapse_dir / "terraform.tfvars"
-    sql_admin_login = os.environ.get("SYNAPSE_SQL_ADMIN_LOGIN") or read_tfvars_value(tfvars_path, "sql_admin_login") or DEFAULTS["synapse_sql_admin_login"]
-    sql_admin_password = os.environ.get("SYNAPSE_SQL_ADMIN_PASSWORD") or read_tfvars_value(tfvars_path, "sql_admin_password")
+    sql_admin_login = (
+        os.environ.get("SYNAPSE_SQL_ADMIN_LOGIN")
+        or read_tfvars_value(tfvars_path, "sql_admin_login")
+        or DEFAULTS["synapse_sql_admin_login"]
+    )
+    sql_admin_password = os.environ.get("SYNAPSE_SQL_ADMIN_PASSWORD") or read_tfvars_value(
+        tfvars_path, "sql_admin_password"
+    )
     aad_admin_login = os.environ.get("SYNAPSE_AAD_ADMIN_LOGIN")
     aad_admin_object_id = os.environ.get("SYNAPSE_AAD_ADMIN_OBJECT_ID")
-    filesystem_name = os.environ.get("SYNAPSE_FILESYSTEM_NAME") or read_tfvars_value(tfvars_path, "filesystem_name") or DEFAULTS["synapse_filesystem_name"]
+    filesystem_name = (
+        os.environ.get("SYNAPSE_FILESYSTEM_NAME")
+        or read_tfvars_value(tfvars_path, "filesystem_name")
+        or DEFAULTS["synapse_filesystem_name"]
+    )
 
     if not sql_admin_password:
         sql_admin_password = generate_password()
         print("Generated placeholder Synapse SQL admin password for destroy.")
+
     if not aad_admin_login:
         aad_admin_login = read_tfvars_value(tfvars_path, "aad_admin_login")
     if not aad_admin_object_id:
@@ -426,7 +499,7 @@ def write_synapse_tfvars(synapse_dir, rg_name):
         if not aad_admin_object_id:
             aad_admin_object_id = read_tfvars_value(example_path, "aad_admin_object_id")
 
-    # If we have a group name but no object id, try to resolve via Azure CLI (no direct Graph REST)
+    # If we have a group name but no object id, try to resolve via Azure CLI
     if aad_admin_login and not aad_admin_object_id:
         aad_admin_object_id = resolve_aad_group_object_id(aad_admin_login)
 
@@ -452,10 +525,12 @@ def write_synapse_tfvars(synapse_dir, rg_name):
     ]
     write_tfvars(synapse_dir / "terraform.tfvars", items)
 
+
 def destroy_stack(tf_dir):
     if not tf_dir.exists():
         raise FileNotFoundError(f"Missing Terraform dir: {tf_dir}")
     run(["terraform", f"-chdir={tf_dir}", "destroy", "-auto-approve"])
+
 
 if __name__ == "__main__":
     try:
@@ -467,15 +542,28 @@ if __name__ == "__main__":
         group.add_argument("--adf-links-only", action="store_true", help="Destroy only the ADF linked services stack")
         group.add_argument("--adf-pipeline-only", action="store_true", help="Destroy only the ADF pipeline stack")
         group.add_argument("--databricks-only", action="store_true", help="Destroy only the Databricks stack")
-        group.add_argument("--databricks-access-only", action="store_true", help="Destroy only the Databricks access connector stack")
-        group.add_argument("--databricks-adls-sp-only", action="store_true", help="Destroy only the ADLS OAuth service principal stack")
+        group.add_argument(
+            "--databricks-access-only",
+            action="store_true",
+            help="Destroy only the Databricks access connector stack",
+        )
+        group.add_argument(
+            "--databricks-adls-sp-only",
+            action="store_true",
+            help="Destroy only the ADLS OAuth service principal stack",
+        )
         group.add_argument("--databricks-cluster-only", action="store_true", help="Destroy only the Databricks cluster stack")
-        group.add_argument("--databricks-notebooks-only", action="store_true", help="Destroy only the Databricks notebooks stack")
+        group.add_argument(
+            "--databricks-notebooks-only",
+            action="store_true",
+            help="Destroy only the Databricks notebooks stack",
+        )
         group.add_argument("--synapse-only", action="store_true", help="Destroy only the Synapse Analytics stack")
         args = parser.parse_args()
 
         repo_root = Path(__file__).resolve().parent.parent
         load_env_file(repo_root / ".env")
+
         rg_dir = repo_root / "terraform" / "01_resource_group"
         storage_dir = repo_root / "terraform" / "02_storage_account"
         data_factory_dir = repo_root / "terraform" / "03_data_factory"
@@ -581,42 +669,54 @@ if __name__ == "__main__":
         rg_name = get_rg_name(rg_dir)
         if not rg_name:
             raise RuntimeError("Resource group name not found for storage destroy.")
+
         write_storage_tfvars(storage_dir, rg_name)
         write_data_factory_tfvars(data_factory_dir, rg_name)
+
         if state_has_resources(pipeline_dir):
             write_adf_pipeline_tfvars(pipeline_dir, data_factory_dir, linked_services_dir)
             destroy_stack(pipeline_dir)
         else:
             print("No ADF pipeline state found; skipping destroy.")
+
         if state_has_resources(linked_services_dir):
             write_adf_linked_services_tfvars(linked_services_dir, data_factory_dir, storage_dir)
             destroy_stack(linked_services_dir)
         else:
             print("No ADF linked services state found; skipping destroy.")
+
         if state_has_resources(databricks_notebooks_dir):
             write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_dir, databricks_cluster_dir)
             destroy_stack(databricks_notebooks_dir)
         else:
             print("No Databricks notebooks state found; skipping destroy.")
+
         if state_has_resources(synapse_dir):
             write_synapse_tfvars(synapse_dir, rg_name)
             destroy_stack(synapse_dir)
         else:
             print("No Synapse Analytics state found; skipping destroy.")
+
         write_databricks_cluster_tfvars(databricks_cluster_dir, databricks_dir)
         destroy_stack(databricks_cluster_dir)
+
         storage_account_id = get_storage_account_id(storage_dir)
         if not storage_account_id:
             raise RuntimeError("Storage account ID not found for Databricks access destroy.")
+
         write_adls_oauth_tfvars(adls_oauth_dir, rg_name, storage_account_id)
         destroy_stack(adls_oauth_dir)
+
         write_databricks_access_tfvars(databricks_access_dir, rg_name, storage_account_id)
         destroy_stack(databricks_access_dir)
+
         write_databricks_tfvars(databricks_dir, rg_name)
         destroy_stack(databricks_dir)
+
         destroy_stack(data_factory_dir)
         destroy_stack(storage_dir)
         destroy_stack(rg_dir)
+
     except subprocess.CalledProcessError as exc:
         print(f"Command failed: {exc}")
         sys.exit(exc.returncode)
