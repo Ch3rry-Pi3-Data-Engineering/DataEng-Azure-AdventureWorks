@@ -120,7 +120,7 @@ python scripts\destroy.py --synapse-only
 ```
 
 ADLS OAuth: when `09_databricks_adls_sp` is deployed (or `ADLS_OAUTH_*` env vars are set), the cluster is configured for direct `abfss://` access using OAuth and exposes `STORAGE_ACCOUNT_NAME`. Notebook uploads go to the current user's workspace path from the Databricks token.
-Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` and `SYNAPSE_AAD_ADMIN_OBJECT_ID` (group recommended). The deploy script generates a SQL admin password if missing; you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
+Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended). The deploy script resolves the object id when possible; if directory reads are restricted, also set `SYNAPSE_AAD_ADMIN_OBJECT_ID` or `aad_admin_object_id` in `terraform/11_synapse_analytics/terraform.tfvars`. The deploy script generates a SQL admin password if missing (per-user) and you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
 
 ## Guide
 See `guides/setup.md` for detailed instructions.

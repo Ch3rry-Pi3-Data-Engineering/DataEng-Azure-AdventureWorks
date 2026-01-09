@@ -315,6 +315,8 @@ def write_synapse_tfvars(synapse_dir, rg_name):
     tfvars_path = synapse_dir / "terraform.tfvars"
     sql_admin_login = os.environ.get("SYNAPSE_SQL_ADMIN_LOGIN") or read_tfvars_value(tfvars_path, "sql_admin_login") or DEFAULTS["synapse_sql_admin_login"]
     sql_admin_password = os.environ.get("SYNAPSE_SQL_ADMIN_PASSWORD") or read_tfvars_value(tfvars_path, "sql_admin_password")
+    if sql_admin_password and sql_admin_password.strip().lower().startswith("changeme"):
+        sql_admin_password = None
     aad_admin_login = os.environ.get("SYNAPSE_AAD_ADMIN_LOGIN")
     aad_admin_object_id = os.environ.get("SYNAPSE_AAD_ADMIN_OBJECT_ID")
     filesystem_name = os.environ.get("SYNAPSE_FILESYSTEM_NAME") or DEFAULTS["synapse_filesystem_name"]
@@ -324,28 +326,22 @@ def write_synapse_tfvars(synapse_dir, rg_name):
         print("Generated Synapse SQL admin password and wrote it to terraform/11_synapse_analytics/terraform.tfvars.")
     if not aad_admin_login:
         aad_admin_login = read_tfvars_value(tfvars_path, "aad_admin_login")
+    example_path = synapse_dir / "terraform.tfvars.example"
+    if example_path.exists() and not aad_admin_login:
+        aad_admin_login = read_tfvars_value(example_path, "aad_admin_login")
     if not aad_admin_object_id:
         aad_admin_object_id = read_tfvars_value(tfvars_path, "aad_admin_object_id")
-
-    # Fallback: read from terraform.tfvars.example if present (useful for first-time setup)
-    example_path = synapse_dir / "terraform.tfvars.example"
-    if example_path.exists():
-        if not aad_admin_login:
-            aad_admin_login = read_tfvars_value(example_path, "aad_admin_login")
-        if not aad_admin_object_id:
-            aad_admin_object_id = read_tfvars_value(example_path, "aad_admin_object_id")
-
-    # If tfvars already contains values, trust them
-    if aad_admin_login and aad_admin_object_id:
-        pass
-
+    if aad_admin_login:
+        resolved_object_id = resolve_aad_group_object_id(aad_admin_login)
+        if resolved_object_id:
+            aad_admin_object_id = resolved_object_id
 
     if not aad_admin_login or not aad_admin_object_id:
         raise RuntimeError(
             "Missing Synapse Entra admin info. "
-            "Set SYNAPSE_AAD_ADMIN_LOGIN and SYNAPSE_AAD_ADMIN_OBJECT_ID (group recommended). "
-            "If you only have a group name, ensure `az ad group show --group <name>` works in your tenant "
-            "or put `aad_admin_object_id` into terraform/11_synapse_analytics/terraform.tfvars(.example)."
+            "Set SYNAPSE_AAD_ADMIN_LOGIN (group recommended). "
+            "If you can't resolve the group object id with `az ad group show --group <name>`, "
+            "also set SYNAPSE_AAD_ADMIN_OBJECT_ID or add `aad_admin_object_id` to terraform/11_synapse_analytics/terraform.tfvars."
         )
 
     items = [
