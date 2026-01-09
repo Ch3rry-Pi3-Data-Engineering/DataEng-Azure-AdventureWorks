@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.100"
     }
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.4"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
@@ -23,6 +27,10 @@ data "azurerm_resource_group" "main" {
 
 data "azurerm_client_config" "current" {}
 
+data "http" "terraform_runner_ip" {
+  url = "https://api.ipify.org?format=text"
+}
+
 resource "random_pet" "workspace" {
   length    = 2
   separator = "-"
@@ -37,6 +45,7 @@ locals {
   workspace_name       = var.workspace_name != null ? var.workspace_name : "${var.workspace_name_prefix}-${random_pet.workspace.id}"
   managed_rg_name      = var.managed_resource_group_name != null ? var.managed_resource_group_name : "${var.managed_resource_group_name_prefix}-${random_pet.workspace.id}"
   storage_account_name = var.storage_account_name != null ? var.storage_account_name : substr("${var.storage_account_name_prefix}${random_pet.storage.id}", 0, 24)
+  terraform_runner_ip  = trimspace(data.http.terraform_runner_ip.response_body)
 }
 
 resource "azurerm_storage_account" "synapse" {
@@ -80,6 +89,13 @@ resource "azurerm_synapse_workspace" "main" {
   tags = var.tags
 }
 
+resource "azurerm_synapse_firewall_rule" "allow_terraform_runner" {
+  name                 = "AllowTerraformRunnerIP"
+  synapse_workspace_id = azurerm_synapse_workspace.main.id
+  start_ip_address     = local.terraform_runner_ip
+  end_ip_address       = local.terraform_runner_ip
+}
+
 resource "azurerm_synapse_workspace_sql_aad_admin" "admin" {
   synapse_workspace_id = azurerm_synapse_workspace.main.id
   login                = var.aad_admin_login
@@ -87,8 +103,32 @@ resource "azurerm_synapse_workspace_sql_aad_admin" "admin" {
   tenant_id            = data.azurerm_client_config.current.tenant_id
 }
 
+resource "azurerm_synapse_role_assignment" "synapse_workspace_admin" {
+  synapse_workspace_id = azurerm_synapse_workspace.main.id
+  role_name            = "Synapse Administrator"
+  principal_id         = var.aad_admin_object_id
+
+  depends_on = [azurerm_synapse_firewall_rule.allow_terraform_runner]
+}
+
+resource "azurerm_role_assignment" "synapse_workspace_owner" {
+  scope                = azurerm_synapse_workspace.main.id
+  role_definition_name = "Owner"
+  principal_id         = var.aad_admin_object_id
+}
+
 resource "azurerm_role_assignment" "synapse_storage_access" {
   scope                = azurerm_storage_account.synapse.id
+  role_definition_name = var.storage_role_definition_name
+  principal_id         = azurerm_synapse_workspace.main.identity[0].principal_id
+
+  skip_service_principal_aad_check = true
+}
+
+resource "azurerm_role_assignment" "synapse_shared_storage_access" {
+  count = var.shared_storage_account_id != null ? 1 : 0
+
+  scope                = var.shared_storage_account_id
   role_definition_name = var.storage_role_definition_name
   principal_id         = azurerm_synapse_workspace.main.identity[0].principal_id
 

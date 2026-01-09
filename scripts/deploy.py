@@ -84,6 +84,23 @@ def resolve_aad_group_object_id(group_name):
     ])
 
 
+def resolve_signed_in_user():
+    az_exe = "az.cmd" if os.name == "nt" else "az"
+    user_login = run_capture_optional([
+        az_exe,
+        "account", "show",
+        "--query", "user.name",
+        "-o", "tsv",
+    ])
+    user_object_id = run_capture_optional([
+        az_exe,
+        "ad", "signed-in-user", "show",
+        "--query", "id",
+        "-o", "tsv",
+    ])
+    return user_login or None, user_object_id or None
+
+
 def hcl_value(value):
     if value is None:
         return "null"
@@ -311,7 +328,7 @@ def write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_host)
         items.append(("databricks_token", databricks_token))
     write_tfvars(databricks_notebooks_dir / "terraform.tfvars", items)
 
-def write_synapse_tfvars(synapse_dir, rg_name):
+def write_synapse_tfvars(synapse_dir, rg_name, shared_storage_account_id=None):
     tfvars_path = synapse_dir / "terraform.tfvars"
     sql_admin_login = os.environ.get("SYNAPSE_SQL_ADMIN_LOGIN") or read_tfvars_value(tfvars_path, "sql_admin_login") or DEFAULTS["synapse_sql_admin_login"]
     sql_admin_password = os.environ.get("SYNAPSE_SQL_ADMIN_PASSWORD") or read_tfvars_value(tfvars_path, "sql_admin_password")
@@ -326,22 +343,36 @@ def write_synapse_tfvars(synapse_dir, rg_name):
         print("Generated Synapse SQL admin password and wrote it to terraform/11_synapse_analytics/terraform.tfvars.")
     if not aad_admin_login:
         aad_admin_login = read_tfvars_value(tfvars_path, "aad_admin_login")
-    example_path = synapse_dir / "terraform.tfvars.example"
-    if example_path.exists() and not aad_admin_login:
-        aad_admin_login = read_tfvars_value(example_path, "aad_admin_login")
     if not aad_admin_object_id:
         aad_admin_object_id = read_tfvars_value(tfvars_path, "aad_admin_object_id")
-    if aad_admin_login:
+    if aad_admin_login and not aad_admin_object_id:
         resolved_object_id = resolve_aad_group_object_id(aad_admin_login)
         if resolved_object_id:
             aad_admin_object_id = resolved_object_id
+        else:
+            user_login, user_object_id = resolve_signed_in_user()
+            if user_login and user_object_id and user_login.lower() == aad_admin_login.lower():
+                aad_admin_object_id = user_object_id
+    if not aad_admin_login and not aad_admin_object_id:
+        user_login, user_object_id = resolve_signed_in_user()
+        if user_login:
+            aad_admin_login = user_login
+        if user_object_id:
+            aad_admin_object_id = user_object_id
 
+    example_path = synapse_dir / "terraform.tfvars.example"
+    if example_path.exists() and not aad_admin_login:
+        aad_admin_login = read_tfvars_value(example_path, "aad_admin_login")
+        if aad_admin_login and not aad_admin_object_id:
+            resolved_object_id = resolve_aad_group_object_id(aad_admin_login)
+            if resolved_object_id:
+                aad_admin_object_id = resolved_object_id
     if not aad_admin_login or not aad_admin_object_id:
         raise RuntimeError(
             "Missing Synapse Entra admin info. "
             "Set SYNAPSE_AAD_ADMIN_LOGIN (group recommended). "
             "If you can't resolve the group object id with `az ad group show --group <name>`, "
-            "also set SYNAPSE_AAD_ADMIN_OBJECT_ID or add `aad_admin_object_id` to terraform/11_synapse_analytics/terraform.tfvars."
+            "set SYNAPSE_AAD_ADMIN_OBJECT_ID or add `aad_admin_object_id` to terraform/11_synapse_analytics/terraform.tfvars."
         )
 
     items = [
@@ -357,6 +388,8 @@ def write_synapse_tfvars(synapse_dir, rg_name):
         ("aad_admin_object_id", aad_admin_object_id),
         ("storage_role_definition_name", DEFAULTS["synapse_storage_role_definition_name"]),
     ]
+    if shared_storage_account_id:
+        items.append(("shared_storage_account_id", shared_storage_account_id))
     write_tfvars(synapse_dir / "terraform.tfvars", items)
 
 def deploy_stack(tf_dir):
@@ -411,7 +444,11 @@ if __name__ == "__main__":
         if args.synapse_only:
             run(["terraform", f"-chdir={rg_dir}", "init"])
             rg_name = get_output(rg_dir, "resource_group_name")
-            write_synapse_tfvars(synapse_dir, rg_name)
+            run(["terraform", f"-chdir={storage_dir}", "init"])
+            storage_account_id = get_output_optional(storage_dir, "storage_account_id")
+            if not storage_account_id:
+                raise RuntimeError("Storage account ID not found for Synapse access. Deploy the storage stack first.")
+            write_synapse_tfvars(synapse_dir, rg_name, storage_account_id)
             deploy_stack(synapse_dir)
             sys.exit(0)
 
@@ -509,7 +546,8 @@ if __name__ == "__main__":
         rg_name = get_output(rg_dir, "resource_group_name")
         write_storage_tfvars(storage_dir, rg_name)
         deploy_stack(storage_dir)
-        write_synapse_tfvars(synapse_dir, rg_name)
+        storage_account_id = get_output(storage_dir, "storage_account_id")
+        write_synapse_tfvars(synapse_dir, rg_name, storage_account_id)
         deploy_stack(synapse_dir)
         write_data_factory_tfvars(data_factory_dir, rg_name)
         deploy_stack(data_factory_dir)

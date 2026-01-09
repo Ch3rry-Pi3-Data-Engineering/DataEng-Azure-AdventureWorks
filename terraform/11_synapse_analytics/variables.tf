@@ -39,6 +39,12 @@ variable "storage_account_name" {
   default     = null
 }
 
+variable "shared_storage_account_id" {
+  type        = string
+  description = "Optional ID of the primary ADLS storage account to grant Synapse managed identity access"
+  default     = null
+}
+
 variable "storage_account_name_prefix" {
   type        = string
   description = "Prefix used to build the storage account name when storage_account_name is null"
