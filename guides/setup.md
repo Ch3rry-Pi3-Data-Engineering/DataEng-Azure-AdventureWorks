@@ -83,7 +83,7 @@ After installing, re-open PowerShell and re-run terraform version.
 ## Architecture Overview
 ```mermaid
 flowchart LR
-    RG[Resource group] --> SA[ADLS Gen2 (project storage)]
+    RG[Resource group] --> SA["ADLS Gen2 (project storage)"]
     SA --> B[bronze]
     SA --> S[silver]
     SA --> G[gold]
