@@ -24,6 +24,7 @@ flowchart LR
    - Azure CLI (az)
    - Terraform (>= 1.5)
    - Python 3.10+
+   - sqlcmd (mssql-tools18) for serverless SQL bootstrap
 
 2) Authenticate to Azure:
 ```powershell
@@ -35,6 +36,7 @@ az account show
 ```powershell
 python scripts\deploy.py
 ```
+This runs Terraform, executes the serverless SQL bootstrap script, and publishes manual SQL scripts to Synapse Studio.
 If you prefer, place `DATABRICKS_TOKEN` in a gitignored `.env` file at the repo root; the scripts will load it automatically.
 For ADLS OAuth in the Databricks cluster, you can also set `ADLS_OAUTH_CLIENT_ID`, `ADLS_OAUTH_CLIENT_SECRET`, `ADLS_OAUTH_TENANT_ID`, and `ADLS_STORAGE_ACCOUNT_NAME` in `.env`, or let the `09_databricks_adls_sp` module generate them.
 
@@ -70,6 +72,7 @@ Set `resource_group_name` in `terraform/01_resource_group/terraform.tfvars` (or 
 - `terraform/10_databricks_notebooks`: Databricks notebooks (user home upload)
 - `terraform/11_synapse_analytics`: Synapse workspace + dedicated ADLS Gen2 storage
 - `scripts/`: Deploy/destroy helpers (auto-writes terraform.tfvars)
+- `sql/serverless`: Serverless SQL scripts (bootstrap + manual publish)
 - `guides/setup.md`: Detailed setup guide
 - `notebooks/`: Databricks notebooks
 
@@ -103,6 +106,8 @@ python scripts\deploy.py --databricks-notebooks-only
 python scripts\deploy.py --synapse-only
 python scripts\deploy.py --sql
 python scripts\deploy.py --sql-only
+python scripts\deploy.py --publish-sql
+python scripts\deploy.py --publish-sql-only
 ```
 
 Destroy:
@@ -122,9 +127,12 @@ python scripts\destroy.py --synapse-only
 ```
 
 ADLS OAuth: when `09_databricks_adls_sp` is deployed (or `ADLS_OAUTH_*` env vars are set), the cluster is configured for direct `abfss://` access using OAuth and exposes `STORAGE_ACCOUNT_NAME`. Notebook uploads go to the current user's workspace path from the Databricks token.
-Storage RBAC: the deploy script grants Storage Blob Data Contributor on the primary storage account to the signed-in user (override with `STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID`).
+Storage RBAC: the deploy script grants Storage Blob Data Contributor on the primary storage account to the signed-in user (override with `STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID`). Synapse's managed identity is also granted Storage Blob Data Contributor on both the Synapse workspace storage and the primary ADLS account.
 Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended). If nothing is provided, the deploy script attempts to use the signed-in Azure CLI user; if directory reads are restricted, set `SYNAPSE_AAD_ADMIN_OBJECT_ID` or `aad_admin_object_id` in `terraform/11_synapse_analytics/terraform.tfvars`. The deploy script generates a SQL admin password if missing (per-user) and you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
+Synapse firewall: the Synapse module auto-creates a firewall rule for your current public IP. If your IP changes, re-run the Synapse deploy.
 Serverless SQL bootstrap: a single script in `sql/serverless/00_create_db.sql` runs via `sqlcmd` during a full deploy, or when you pass `--synapse-only --sql` or `--sql-only`. It uses `--authentication-method ActiveDirectoryAzCli`, so ensure `az login` is active.
+Synapse SQL publish: scripts in `sql/serverless/manual` are published to the workspace (Develop -> SQL scripts) during a full deploy, or when you pass `--synapse-only --publish-sql` or `--publish-sql-only`. The publisher substitutes `$(STORAGE_ACCOUNT_NAME)` using the storage account name from Terraform outputs.
+
 
 ## Guide
 See `guides/setup.md` for detailed instructions.

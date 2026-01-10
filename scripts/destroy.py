@@ -724,18 +724,18 @@ if __name__ == "__main__":
         else:
             print("No ADF linked services state found; skipping destroy.")
 
-        if state_has_resources(databricks_notebooks_dir):
-            write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_dir, databricks_cluster_dir)
-            destroy_stack(databricks_notebooks_dir)
-        else:
-            print("No Databricks notebooks state found; skipping destroy.")
-
         if state_has_resources(synapse_dir):
             storage_account_id = get_storage_account_id(storage_dir)
             write_synapse_tfvars(synapse_dir, rg_name, storage_account_id)
             destroy_stack(synapse_dir)
         else:
             print("No Synapse Analytics state found; skipping destroy.")
+
+        if state_has_resources(databricks_notebooks_dir):
+            write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_dir, databricks_cluster_dir)
+            destroy_stack(databricks_notebooks_dir)
+        else:
+            print("No Databricks notebooks state found; skipping destroy.")
 
         write_databricks_cluster_tfvars(databricks_cluster_dir, databricks_dir)
         destroy_stack(databricks_cluster_dir)

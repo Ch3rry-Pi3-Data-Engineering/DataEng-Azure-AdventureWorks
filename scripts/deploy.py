@@ -1,10 +1,12 @@
 import argparse
+import json
 import os
 import shutil
 import secrets
 import string
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 DEFAULTS = {
@@ -142,6 +144,72 @@ def run_serverless_sql_scripts(synapse_dir, scripts_dir, database_name):
                 "-b",
             ],
         )
+
+def publish_synapse_sql_scripts(synapse_dir, scripts_dir, storage_dir):
+    az_exe = get_az_exe()
+    if not scripts_dir.exists():
+        print(f"Synapse SQL publish folder not found: {scripts_dir}")
+        return
+
+    run(["terraform", f"-chdir={storage_dir}", "init"])
+    storage_account_name = get_output_optional(storage_dir, "storage_account_name")
+    if not storage_account_name:
+        raise RuntimeError("Storage account name not found. Deploy the storage stack first.")
+
+    run(["terraform", f"-chdir={synapse_dir}", "init"])
+    workspace_name = get_output(synapse_dir, "workspace_name")
+
+    scripts = sorted(path for path in scripts_dir.glob("*.sql") if path.is_file())
+    if not scripts:
+        print(f"No SQL scripts found in {scripts_dir}")
+        return
+
+    for script_path in scripts:
+        script_name = script_path.stem
+        sql_text = script_path.read_text(encoding="utf-8")
+        if "$(STORAGE_ACCOUNT_NAME)" in sql_text:
+            sql_text = sql_text.replace("$(STORAGE_ACCOUNT_NAME)", storage_account_name)
+        payload = json.dumps(
+            {
+                "properties": {
+                    "content": {
+                        "query": sql_text,
+                        "metadata": {"language": "sql"},
+                    }
+                }
+            }
+        )
+        uri = (
+            f"https://{workspace_name}.dev.azuresynapse.net/sqlScripts/"
+            f"{script_name}?api-version=2020-12-01"
+        )
+        print(
+            f"\n$ az rest --method put --uri {uri} "
+            f"--resource https://dev.azuresynapse.net --body <{script_path.name}>"
+        )
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            temp_file.write(payload)
+            temp_path = temp_file.name
+        try:
+            subprocess.check_call(
+                [
+                    az_exe,
+                    "rest",
+                    "--method",
+                    "put",
+                    "--uri",
+                    uri,
+                    "--resource",
+                    "https://dev.azuresynapse.net",
+                    "--body",
+                    f"@{temp_path}",
+                ]
+            )
+        finally:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def hcl_value(value):
@@ -464,6 +532,8 @@ if __name__ == "__main__":
         group.add_argument("--synapse-only", action="store_true", help="Deploy only the Synapse Analytics stack")
         group.add_argument("--sql-only", action="store_true", help="Run Synapse serverless SQL bootstrap only")
         parser.add_argument("--sql", action="store_true", help="Run Synapse serverless SQL bootstrap after deploy")
+        parser.add_argument("--publish-sql", action="store_true", help="Publish Synapse SQL scripts after deploy")
+        parser.add_argument("--publish-sql-only", action="store_true", help="Publish Synapse SQL scripts only")
         args = parser.parse_args()
 
         repo_root = Path(__file__).resolve().parent.parent
@@ -480,6 +550,7 @@ if __name__ == "__main__":
         databricks_notebooks_dir = repo_root / "terraform" / "10_databricks_notebooks"
         synapse_dir = repo_root / "terraform" / "11_synapse_analytics"
         sql_scripts_dir = repo_root / "sql" / "serverless"
+        publish_scripts_dir = repo_root / "sql" / "serverless" / "manual"
         serverless_db_name = os.environ.get("SYNAPSE_SERVERLESS_DB_NAME") or DEFAULTS["synapse_serverless_db_name"]
 
         if args.sql and any(
@@ -498,8 +569,27 @@ if __name__ == "__main__":
         ):
             raise RuntimeError("--sql can only be used with full deploy or --synapse-only.")
 
-        if args.sql_only:
-            run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
+        if args.publish_sql and any(
+            [
+                args.rg_only,
+                args.storage_only,
+                args.datafactory_only,
+                args.adf_links_only,
+                args.adf_pipeline_only,
+                args.databricks_only,
+                args.databricks_access_only,
+                args.databricks_adls_sp_only,
+                args.databricks_cluster_only,
+                args.databricks_notebooks_only,
+            ]
+        ):
+            raise RuntimeError("--publish-sql can only be used with full deploy or --synapse-only.")
+
+        if args.sql_only or args.publish_sql_only:
+            if args.sql_only:
+                run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
+            if args.publish_sql_only:
+                publish_synapse_sql_scripts(synapse_dir, publish_scripts_dir, storage_dir)
             sys.exit(0)
 
         if args.rg_only:
@@ -525,6 +615,8 @@ if __name__ == "__main__":
             deploy_stack(synapse_dir)
             if args.sql:
                 run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
+            if args.publish_sql:
+                publish_synapse_sql_scripts(synapse_dir, publish_scripts_dir, storage_dir)
             sys.exit(0)
 
         if args.datafactory_only:
@@ -622,8 +714,6 @@ if __name__ == "__main__":
         write_storage_tfvars(storage_dir, rg_name)
         deploy_stack(storage_dir)
         storage_account_id = get_output(storage_dir, "storage_account_id")
-        write_synapse_tfvars(synapse_dir, rg_name, storage_account_id)
-        deploy_stack(synapse_dir)
         write_data_factory_tfvars(data_factory_dir, rg_name)
         deploy_stack(data_factory_dir)
         data_factory_id = get_output(data_factory_dir, "data_factory_id")
@@ -668,7 +758,10 @@ if __name__ == "__main__":
         deploy_stack(databricks_cluster_dir)
         write_databricks_notebooks_tfvars(databricks_notebooks_dir, databricks_host)
         deploy_stack(databricks_notebooks_dir)
+        write_synapse_tfvars(synapse_dir, rg_name, storage_account_id)
+        deploy_stack(synapse_dir)
         run_serverless_sql_scripts(synapse_dir, sql_scripts_dir, serverless_db_name)
+        publish_synapse_sql_scripts(synapse_dir, publish_scripts_dir, storage_dir)
     except subprocess.CalledProcessError as exc:
         print(f"Command failed: {exc}")
         sys.exit(exc.returncode)

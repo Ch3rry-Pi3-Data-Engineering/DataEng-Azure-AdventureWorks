@@ -24,6 +24,7 @@ flowchart LR
 - Azure CLI (az) installed and authenticated
 - Terraform installed (>= 1.5)
 - Python 3.10+ (for running the helper scripts)
+- sqlcmd (mssql-tools18) for serverless SQL bootstrap
 - Entra ID permissions to create app registrations if you use `09_databricks_adls_sp`
 
 ## Azure CLI
@@ -75,6 +76,7 @@ After installing, re-open PowerShell and re-run terraform version.
 - `terraform/10_databricks_notebooks`: Databricks notebooks (user home upload)
 - `terraform/11_synapse_analytics`: Synapse workspace + dedicated ADLS Gen2 storage
 - `scripts/`: Helper scripts to deploy/destroy Terraform resources
+- `sql/serverless`: Serverless SQL scripts (bootstrap + manual publish)
 - `guides/setup.md`: This guide
 - `notebooks/`: Databricks notebooks
 
@@ -105,6 +107,7 @@ From the repo root or scripts folder, run:
 ```powershell
 python scripts\deploy.py
 ```
+This runs Terraform, executes the serverless SQL bootstrap script, and publishes manual SQL scripts to Synapse Studio.
 
 Optional flags:
 
@@ -120,6 +123,10 @@ python scripts\deploy.py --databricks-adls-sp-only
 python scripts\deploy.py --databricks-cluster-only
 python scripts\deploy.py --databricks-notebooks-only
 python scripts\deploy.py --synapse-only
+python scripts\deploy.py --sql
+python scripts\deploy.py --sql-only
+python scripts\deploy.py --publish-sql
+python scripts\deploy.py --publish-sql-only
 ```
 
 ## Databricks Notebook Access
@@ -170,7 +177,10 @@ python scripts\destroy.py --synapse-only
 - The ADLS OAuth module creates a service principal and grants container RBAC for cluster access.
 - The Databricks cluster module expects a PAT in `DATABRICKS_TOKEN` (or set `databricks_token` in the tfvars file). You can add `DATABRICKS_TOKEN=...` to a gitignored `.env` file at the repo root.
 - For ADLS OAuth, you can either let `09_databricks_adls_sp` generate credentials or set `ADLS_OAUTH_CLIENT_ID`, `ADLS_OAUTH_CLIENT_SECRET`, `ADLS_OAUTH_TENANT_ID`, and `ADLS_STORAGE_ACCOUNT_NAME` in `.env`.
-- Storage RBAC: the deploy script grants Storage Blob Data Contributor on the primary storage account to the signed-in user (override with `STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID`).
-- For Synapse, set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended) in `.env`. If nothing is provided, the deploy script attempts to use the signed-in Azure CLI user; if directory reads are restricted, set `SYNAPSE_AAD_ADMIN_OBJECT_ID` or add `aad_admin_object_id` to `terraform/11_synapse_analytics/terraform.tfvars`. The deploy script generates a SQL admin password if missing (per-user); you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
+- Storage RBAC: the deploy script grants Storage Blob Data Contributor on the primary storage account to the signed-in user (override with `STORAGE_BLOB_CONTRIBUTOR_OBJECT_ID`). Synapse's managed identity is also granted Storage Blob Data Contributor on both the Synapse workspace storage and the primary ADLS account.
+- Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended) in `.env`. If nothing is provided, the deploy script attempts to use the signed-in Azure CLI user; if directory reads are restricted, set `SYNAPSE_AAD_ADMIN_OBJECT_ID` or add `aad_admin_object_id` to `terraform/11_synapse_analytics/terraform.tfvars`. The deploy script generates a SQL admin password if missing (per-user); you can override with `SYNAPSE_SQL_ADMIN_PASSWORD`. Optionally set `SYNAPSE_SQL_ADMIN_LOGIN` and `SYNAPSE_FILESYSTEM_NAME` to override defaults.
+- Synapse firewall: the Synapse module auto-creates a firewall rule for your current public IP. If your IP changes, re-run the Synapse deploy.
+- Serverless SQL bootstrap: `sql/serverless/00_create_db.sql` runs via `sqlcmd` during a full deploy, or when you pass `--synapse-only --sql` or `--sql-only`. It uses `--authentication-method ActiveDirectoryAzCli`, so ensure `az login` is active.
+- Synapse SQL publish: scripts in `sql/serverless/manual` are published to the workspace (Develop -> SQL scripts) during a full deploy, or when you pass `--synapse-only --publish-sql` or `--publish-sql-only`. The publisher substitutes `$(STORAGE_ACCOUNT_NAME)` using the storage account name from Terraform outputs.
 - Terraform state and tfvars files are gitignored by default.
 - The random suffix keeps resource names unique per deployment.
