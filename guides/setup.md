@@ -80,6 +80,22 @@ After installing, re-open PowerShell and re-run terraform version.
 - `guides/setup.md`: This guide
 - `notebooks/`: Databricks notebooks
 
+## Architecture Overview
+```mermaid
+flowchart LR
+    RG[Resource group] --> SA[ADLS Gen2 (project storage)]
+    SA --> B[bronze]
+    SA --> S[silver]
+    SA --> G[gold]
+    RG --> ADF[Data Factory]
+    RG --> DBX[Databricks]
+    RG --> SYN[Synapse workspace]
+    ADF --> SA
+    DBX --> SA
+    SYN --> SA
+    SYN --> SQL[Serverless SQL + Studio scripts]
+```
+
 ## Configure Terraform
 The deploy script writes `terraform/01_resource_group/terraform.tfvars` and `terraform/02_storage_account/terraform.tfvars` automatically.
 If you want different defaults, edit `DEFAULTS` in `scripts/deploy.py` before running.
@@ -128,6 +144,8 @@ python scripts\deploy.py --sql-only
 python scripts\deploy.py --publish-sql
 python scripts\deploy.py --publish-sql-only
 ```
+Note: `--publish-sql` is additive; if you pass it by itself, it runs the full deploy and then publishes scripts. Use `--publish-sql-only` or `--synapse-only --publish-sql` to publish without the full pipeline.
+Note: `--sql` is also additive; if you pass it by itself, it runs the full deploy and then runs the SQL bootstrap. Use `--sql-only` or `--synapse-only --sql` to run SQL without the full pipeline.
 
 ## Databricks Notebook Access
 The Databricks cluster exports `STORAGE_ACCOUNT_NAME`, so notebooks can build `abfss://` paths without hardcoding.
@@ -182,5 +200,12 @@ python scripts\destroy.py --synapse-only
 - Synapse firewall: the Synapse module auto-creates a firewall rule for your current public IP. If your IP changes, re-run the Synapse deploy.
 - Serverless SQL bootstrap: `sql/serverless/00_create_db.sql` runs via `sqlcmd` during a full deploy, or when you pass `--synapse-only --sql` or `--sql-only`. It uses `--authentication-method ActiveDirectoryAzCli`, so ensure `az login` is active.
 - Synapse SQL publish: scripts in `sql/serverless/manual` are published to the workspace (Develop -> SQL scripts) during a full deploy, or when you pass `--synapse-only --publish-sql` or `--publish-sql-only`. The publisher substitutes `$(STORAGE_ACCOUNT_NAME)` using the storage account name from Terraform outputs.
+- Synapse SQL scripts (manual): run these in Synapse Studio after publish:
+  - `20_create_schema_gold.sql`
+  - `21_create_view_gold_customers.sql`
+  - `40_create_master_key_external_sources.sql`
+  - `50_create_external_tables_gold.sql`
+  - `30_select_gold_customers.sql`
+- CETAS creates files in the target folder. If you re-run `50_create_external_tables_gold.sql`, delete the corresponding `gold/ext_*` folders first.
 - Terraform state and tfvars files are gitignored by default.
 - The random suffix keeps resource names unique per deployment.

@@ -40,6 +40,22 @@ This runs Terraform, executes the serverless SQL bootstrap script, and publishes
 If you prefer, place `DATABRICKS_TOKEN` in a gitignored `.env` file at the repo root; the scripts will load it automatically.
 For ADLS OAuth in the Databricks cluster, you can also set `ADLS_OAUTH_CLIENT_ID`, `ADLS_OAUTH_CLIENT_SECRET`, `ADLS_OAUTH_TENANT_ID`, and `ADLS_STORAGE_ACCOUNT_NAME` in `.env`, or let the `09_databricks_adls_sp` module generate them.
 
+## Architecture Overview
+```mermaid
+flowchart LR
+    RG[Resource group] --> SA[ADLS Gen2 (project storage)]
+    SA --> B[bronze]
+    SA --> S[silver]
+    SA --> G[gold]
+    RG --> ADF[Data Factory]
+    RG --> DBX[Databricks]
+    RG --> SYN[Synapse workspace]
+    ADF --> SA
+    DBX --> SA
+    SYN --> SA
+    SYN --> SQL[Serverless SQL + Studio scripts]
+```
+
 ## Databricks Notebook Access
 The Databricks cluster exports `STORAGE_ACCOUNT_NAME`, so notebooks can build `abfss://` paths without hardcoding.
 
@@ -109,6 +125,8 @@ python scripts\deploy.py --sql-only
 python scripts\deploy.py --publish-sql
 python scripts\deploy.py --publish-sql-only
 ```
+Note: `--publish-sql` is additive; if you pass it by itself, it runs the full deploy and then publishes scripts. Use `--publish-sql-only` or `--synapse-only --publish-sql` to publish without the full pipeline.
+Note: `--sql` is also additive; if you pass it by itself, it runs the full deploy and then runs the SQL bootstrap. Use `--sql-only` or `--synapse-only --sql` to run SQL without the full pipeline.
 
 Destroy:
 ```powershell
@@ -132,6 +150,16 @@ Synapse: set `SYNAPSE_AAD_ADMIN_LOGIN` (group recommended). If nothing is provid
 Synapse firewall: the Synapse module auto-creates a firewall rule for your current public IP. If your IP changes, re-run the Synapse deploy.
 Serverless SQL bootstrap: a single script in `sql/serverless/00_create_db.sql` runs via `sqlcmd` during a full deploy, or when you pass `--synapse-only --sql` or `--sql-only`. It uses `--authentication-method ActiveDirectoryAzCli`, so ensure `az login` is active.
 Synapse SQL publish: scripts in `sql/serverless/manual` are published to the workspace (Develop -> SQL scripts) during a full deploy, or when you pass `--synapse-only --publish-sql` or `--publish-sql-only`. The publisher substitutes `$(STORAGE_ACCOUNT_NAME)` using the storage account name from Terraform outputs.
+
+## Synapse SQL Scripts
+Manual scripts in `sql/serverless/manual` are published into Synapse Studio. Suggested run order:
+1) `20_create_schema_gold.sql`
+2) `21_create_view_gold_customers.sql`
+3) `40_create_master_key_external_sources.sql`
+4) `50_create_external_tables_gold.sql`
+5) `30_select_gold_customers.sql`
+
+Note: CETAS creates files in the target folder. If you re-run `50_create_external_tables_gold.sql`, delete the corresponding `gold/ext_*` folders first.
 
 
 ## Guide
