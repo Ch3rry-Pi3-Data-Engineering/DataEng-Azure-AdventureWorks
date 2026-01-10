@@ -43,7 +43,7 @@ For ADLS OAuth in the Databricks cluster, you can also set `ADLS_OAUTH_CLIENT_ID
 ## Architecture Overview
 ```mermaid
 flowchart LR
-    RG[Resource group] --> SA[ADLS Gen2 (project storage)]
+    RG[Resource group] --> SA["ADLS Gen2 (project storage)"]
     SA --> B[bronze]
     SA --> S[silver]
     SA --> G[gold]
